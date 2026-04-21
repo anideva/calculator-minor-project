@@ -1,162 +1,209 @@
+// ----------------------
+// DOM
+// ----------------------
 const displayEl = document.getElementById("display");
-const exprEl = document.getElementById("expr");
+const expressionEl = document.getElementById("expr");
 const keysEl = document.querySelector(".keys");
 const historyListEl = document.getElementById("historyList");
 const clearHistoryBtn = document.getElementById("clearHistory");
 const themeToggleBtn = document.getElementById("themeToggle");
 const copyBtn = document.getElementById("copyBtn");
 
-const MAX_LEN = 80;
-const HISTORY_KEY = "calc.history.v2";
-const THEME_KEY = "calc.theme.v1";
+// ----------------------
+// State
+// ----------------------
+const MAX_EXPRESSION_LENGTH = 80;
+const HISTORY_STORAGE_KEY = "calc.history.v2";
+const THEME_STORAGE_KEY = "calc.theme.v1";
+const HISTORY_LIMIT = 20;
 
-let expr = "";
-let justEvaluated = false;
+let expression = "";
+let isResultOnScreen = false;
 let memory = 0;
 let history = loadHistory();
 
-function render() {
-  exprEl.textContent = expr;
-  displayEl.textContent = preview(expr);
+// ----------------------
+// UI
+// ----------------------
+function updateUI() {
+  expressionEl.textContent = expression;
+  displayEl.textContent = getPreview(expression);
   renderHistory();
   themeToggleBtn.textContent = document.documentElement.dataset.theme === "light" ? "Light" : "Dark";
 }
 
-function clamp(s) {
-  return s.length > MAX_LEN ? s.slice(0, MAX_LEN) : s;
+function truncateExpression(value) {
+  return value.length > MAX_EXPRESSION_LENGTH ? value.slice(0, MAX_EXPRESSION_LENGTH) : value;
 }
 
+// ----------------------
+// Expression editing
+// ----------------------
 function clearAll() {
-  expr = "";
-  justEvaluated = false;
-  render();
+  expression = "";
+  isResultOnScreen = false;
+  updateUI();
 }
 
 function backspace() {
-  expr = expr.slice(0, -1);
-  justEvaluated = false;
-  render();
+  expression = expression.slice(0, -1);
+  isResultOnScreen = false;
+  updateUI();
 }
 
-function append(s) {
-  if (justEvaluated) {
-    // If user starts typing a number or '(' after result, start fresh.
-    if (/^[0-9.(]$/.test(s)) expr = "";
-    justEvaluated = false;
+function appendText(text) {
+  // If a result is showing and the user starts a new number/bracket, start a new expression.
+  if (isResultOnScreen && /^[0-9.(]$/.test(text)) {
+    expression = "";
   }
-  expr = clamp(expr + s);
-  render();
+
+  isResultOnScreen = false;
+  expression = truncateExpression(expression + text);
+  updateUI();
 }
 
-function appendDigit(d) {
-  append(d);
+function appendDigit(digit) {
+  appendText(digit);
 }
 
-function appendDot() {
-  const lastToken = getLastNumberToken(expr);
+function appendDecimal() {
+  const lastToken = getLastNumberToken(expression);
   if (lastToken.includes(".")) return;
-  if (expr === "" || /[+\-*/(]$/.test(expr)) append("0.");
-  else append(".");
+
+  if (expression === "" || /[+\-*/(]$/.test(expression)) appendText("0.");
+  else appendText(".");
 }
 
-function appendOp(op) {
-  if (!expr && op !== "-") return;
-  if (/[+\-*/]$/.test(expr)) {
-    expr = expr.slice(0, -1) + op;
-    justEvaluated = false;
-    render();
+function appendOperator(op) {
+  if (!expression && op !== "-") return;
+
+  // Replace the last operator instead of appending another.
+  if (/[+\-*/]$/.test(expression)) {
+    expression = expression.slice(0, -1) + op;
+    isResultOnScreen = false;
+    updateUI();
     return;
   }
-  append(op);
+
+  appendText(op);
 }
 
-function insertLParen() {
-  if (expr && /[0-9.)]$/.test(expr)) append("*");
-  append("(");
+function insertLeftParen() {
+  // Example: "2(" => "2*("
+  if (expression && /[0-9.)]$/.test(expression)) appendText("*");
+  appendText("(");
 }
 
-function insertRParen() {
-  if (!expr) return;
-  append(")");
+function insertRightParen() {
+  if (!expression) return;
+  appendText(")");
 }
 
-function togglePercent() {
-  // n% => n/100 (only for last number)
-  const r = getLastNumberRange(expr);
-  if (r.start === -1) return;
-  const n = Number(expr.slice(r.start, r.end));
+function applyPercentToLastNumber() {
+  // Example: "50%" => "0.5" (we convert the last number only)
+  const range = getLastNumberRange(expression);
+  if (range.start === -1) return;
+
+  const n = Number(expression.slice(range.start, range.end));
   if (!Number.isFinite(n)) return;
-  const pct = n / 100;
-  expr = clamp(expr.slice(0, r.start) + String(pct) + expr.slice(r.end));
-  justEvaluated = false;
-  render();
+
+  const percent = n / 100;
+  expression = truncateExpression(
+    expression.slice(0, range.start) + String(percent) + expression.slice(range.end),
+  );
+  isResultOnScreen = false;
+  updateUI();
 }
 
-function toggleSign() {
-  const r = getLastNumberRange(expr);
-  if (r.start === -1) return;
-  const token = expr.slice(r.start, r.end);
-  if (token.startsWith("-")) expr = expr.slice(0, r.start) + token.slice(1) + expr.slice(r.end);
-  else expr = expr.slice(0, r.start) + "-" + token + expr.slice(r.end);
-  justEvaluated = false;
-  render();
+function toggleSignOfLastNumber() {
+  const range = getLastNumberRange(expression);
+  if (range.start === -1) return;
+
+  const token = expression.slice(range.start, range.end);
+  if (!token) return;
+
+  expression = token.startsWith("-")
+    ? expression.slice(0, range.start) + token.slice(1) + expression.slice(range.end)
+    : expression.slice(0, range.start) + "-" + token + expression.slice(range.end);
+
+  isResultOnScreen = false;
+  updateUI();
 }
 
-function equals() {
-  const normalized = normalize(expr);
+// ----------------------
+// Evaluation
+// ----------------------
+function onEquals() {
+  const normalized = normalizeExpression(expression);
   if (!normalized) return;
-  const v = evaluate(normalized);
-  if (v === null) {
+
+  const value = evaluateExpression(normalized);
+  if (value === null) {
     displayEl.textContent = "Error";
     return;
   }
-  const out = formatNumber(v);
-  pushHistory(normalized, out);
-  expr = out;
-  exprEl.textContent = normalized;
-  displayEl.textContent = out;
-  justEvaluated = true;
+
+  const resultText = formatNumber(value);
+  addHistoryItem(normalized, resultText);
+
+  expression = resultText;
+  expressionEl.textContent = normalized;
+  displayEl.textContent = resultText;
+  isResultOnScreen = true;
 }
 
-function normalize(s) {
-  let out = s.trim();
+function normalizeExpression(input) {
+  let out = input.trim();
   while (out && /[+\-*/(]$/.test(out[out.length - 1])) out = out.slice(0, -1);
   return out;
 }
 
-function preview(s) {
-  const normalized = normalize(s);
+function getPreview(input) {
+  const normalized = normalizeExpression(input);
   if (!normalized) return "0";
-  const v = evaluate(normalized);
-  return v === null ? "Error" : formatNumber(v);
+
+  const value = evaluateExpression(normalized);
+  return value === null ? "Error" : formatNumber(value);
 }
 
-function evaluate(s) {
-  const jsExpr = toSafeJsExpr(s);
-  if (jsExpr === null) return null;
+function evaluateExpression(input) {
+  // Interview-friendly approach:
+  // 1) sanitize (only allow calculator characters)
+  // 2) evaluate the math using Function()
+  const safe = toSafeJsExpression(input);
+  if (safe === null) return null;
+
   try {
-    const result = Function(`"use strict"; return (${jsExpr});`)();
+    const result = Function(`"use strict"; return (${safe});`)();
     return Number.isFinite(result) ? result : null;
   } catch {
     return null;
   }
 }
 
-function toSafeJsExpr(s) {
-  // Allow only digits, operators, parentheses, dot and spaces.
-  // This makes Function() usage interview-friendly and safe enough for this small project.
-  const cleaned = s.replace(/\s+/g, "");
+function toSafeJsExpression(input) {
+  const cleaned = input.replace(/\s+/g, "");
+
+  // Whitelist allowed characters only.
   if (!/^[0-9+\-*/().]+$/.test(cleaned)) return null;
-  // Block obvious invalid operator sequences
+
+  // Block obvious invalid sequences like "**" or "+++" (keeps behavior predictable).
   if (/[*+/]{2,}/.test(cleaned)) return null;
+
   return cleaned;
 }
 
+// ----------------------
+// Formatting helpers
+// ----------------------
 function formatNumber(n) {
   const v = Object.is(n, -0) ? 0 : n;
   const abs = Math.abs(v);
-  const str = abs !== 0 && (abs >= 1e12 || abs < 1e-9) ? v.toPrecision(12) : String(roundTo(v, 12));
-  return trimZeros(str);
+
+  const str =
+    abs !== 0 && (abs >= 1e12 || abs < 1e-9) ? v.toPrecision(12) : String(roundTo(v, 12));
+
+  return trimTrailingZeros(str);
 }
 
 function roundTo(n, decimals) {
@@ -164,21 +211,27 @@ function roundTo(n, decimals) {
   return Math.round((n + Number.EPSILON) * p) / p;
 }
 
-function trimZeros(s) {
+function trimTrailingZeros(s) {
   if (!s.includes(".")) return s;
   return s.replace(/\.?0+$/, "");
 }
 
 function getLastNumberRange(s) {
+  // Finds the last numeric token at the end of the expression
+  // e.g. "12+(-3.5)" (when cursor is at end) -> selects "3.5"
   let i = s.length - 1;
   if (i < 0) return { start: -1, end: -1 };
+
   while (i >= 0 && /[0-9.]/.test(s[i])) i--;
   const end = i + 1;
   if (end <= 0) return { start: -1, end: -1 };
+
+  // allow unary minus: "...*(-3)" or "(-3)" or "-3"
   if (i >= 0 && s[i] === "-") {
     const before = i - 1 >= 0 ? s[i - 1] : "";
     if (before === "" || /[+\-*/(]$/.test(before)) i--;
   }
+
   const start = i + 1;
   return start === end ? { start: -1, end: -1 } : { start, end };
 }
@@ -188,12 +241,14 @@ function getLastNumberToken(s) {
   return r.start === -1 ? "" : s.slice(r.start, r.end);
 }
 
+// ----------------------
 // History (saved)
+// ----------------------
 function loadHistory() {
   try {
-    const raw = localStorage.getItem(HISTORY_KEY);
+    const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.slice(0, 20) : [];
+    return Array.isArray(parsed) ? parsed.slice(0, HISTORY_LIMIT) : [];
   } catch {
     return [];
   }
@@ -201,20 +256,21 @@ function loadHistory() {
 
 function saveHistory() {
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 20)));
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history.slice(0, HISTORY_LIMIT)));
   } catch {
     // ignore
   }
 }
 
-function pushHistory(expression, resultStr) {
-  history.unshift({ expr: expression, result: resultStr, ts: Date.now() });
-  history = history.slice(0, 20);
+function addHistoryItem(expr, result) {
+  history.unshift({ expr, result, ts: Date.now() });
+  history = history.slice(0, HISTORY_LIMIT);
   saveHistory();
 }
 
 function renderHistory() {
   historyListEl.innerHTML = "";
+
   for (const item of history) {
     const el = document.createElement("div");
     el.className = "history__item";
@@ -222,26 +278,30 @@ function renderHistory() {
     el.innerHTML = `<div class="history__expr"></div><div class="history__res"></div>`;
     el.querySelector(".history__expr").textContent = item.expr;
     el.querySelector(".history__res").textContent = item.result;
-    el.addEventListener("click", () => {
-      expr = item.expr;
-      justEvaluated = false;
-      render();
-    });
+
+    const reuse = () => {
+      expression = item.expr;
+      isResultOnScreen = false;
+      updateUI();
+    };
+
+    el.addEventListener("click", reuse);
     el.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        expr = item.expr;
-        justEvaluated = false;
-        render();
+        reuse();
       }
     });
+
     historyListEl.appendChild(el);
   }
 }
 
+// ----------------------
 // Theme (saved)
+// ----------------------
 function loadTheme() {
-  const saved = localStorage.getItem(THEME_KEY);
+  const saved = localStorage.getItem(THEME_STORAGE_KEY);
   if (saved === "light" || saved === "dark") return saved;
   return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
@@ -249,19 +309,21 @@ function loadTheme() {
 function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
   try {
-    localStorage.setItem(THEME_KEY, theme);
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
   } catch {
     // ignore
   }
 }
 
+// ----------------------
 // Events
+// ----------------------
 keysEl.addEventListener("click", (e) => {
   const btn = e.target.closest("button");
   if (!btn) return;
 
   if (btn.dataset.digit) return appendDigit(btn.dataset.digit);
-  if (btn.dataset.op) return appendOp(btn.dataset.op);
+  if (btn.dataset.op) return appendOperator(btn.dataset.op);
 
   switch (btn.dataset.action) {
     case "clear":
@@ -269,31 +331,33 @@ keysEl.addEventListener("click", (e) => {
     case "backspace":
       return backspace();
     case "dot":
-      return appendDot();
+      return appendDecimal();
     case "equals":
-      return equals();
+      return onEquals();
     case "percent":
-      return togglePercent();
+      return applyPercentToLastNumber();
     case "sign":
-      return toggleSign();
+      return toggleSignOfLastNumber();
     case "lparen":
-      return insertLParen();
+      return insertLeftParen();
     case "rparen":
-      return insertRParen();
+      return insertRightParen();
+
+    // Memory buttons (simple and explainable)
     case "mc":
       memory = 0;
-      return render();
+      return updateUI();
     case "mr":
-      return append(formatNumber(memory));
+      return appendText(formatNumber(memory));
     case "mplus": {
-      const v = evaluate(normalize(expr));
+      const v = evaluateExpression(normalizeExpression(expression));
       if (v !== null) memory += v;
-      return render();
+      return updateUI();
     }
     case "mminus": {
-      const v = evaluate(normalize(expr));
+      const v = evaluateExpression(normalizeExpression(expression));
       if (v !== null) memory -= v;
-      return render();
+      return updateUI();
     }
     default:
       return;
@@ -303,13 +367,13 @@ keysEl.addEventListener("click", (e) => {
 clearHistoryBtn.addEventListener("click", () => {
   history = [];
   saveHistory();
-  render();
+  updateUI();
 });
 
 themeToggleBtn.addEventListener("click", () => {
   const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
   setTheme(next);
-  render();
+  updateUI();
 });
 
 copyBtn.addEventListener("click", async () => {
@@ -317,7 +381,7 @@ copyBtn.addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(text);
     copyBtn.textContent = "Copied";
-    setTimeout(() => render(), 700);
+    setTimeout(() => updateUI(), 700);
   } catch {
     // ignore
   }
@@ -325,19 +389,23 @@ copyBtn.addEventListener("click", async () => {
 
 window.addEventListener("keydown", (e) => {
   const k = e.key;
+
   if (/^[0-9]$/.test(k)) return appendDigit(k);
-  if (k === ".") return appendDot();
-  if (k === "(") return insertLParen();
-  if (k === ")") return insertRParen();
-  if (k === "+" || k === "-" || k === "*" || k === "/") return appendOp(k);
+  if (k === ".") return appendDecimal();
+  if (k === "(") return insertLeftParen();
+  if (k === ")") return insertRightParen();
+  if (k === "+" || k === "-" || k === "*" || k === "/") return appendOperator(k);
+
   if (k === "Enter" || k === "=") {
     e.preventDefault();
-    return equals();
+    return onEquals();
   }
+
   if (k === "Backspace") return backspace();
   if (k === "Escape") return clearAll();
-  if (k === "%") return togglePercent();
+  if (k === "%") return applyPercentToLastNumber();
 });
 
+// init
 setTheme(loadTheme());
-render();
+updateUI();
