@@ -1,4 +1,5 @@
 # Calculator App
+View the live link- https://anideva.github.io/calculator-minor-project/
 
 This is a calculator app I built using **HTML, CSS and JavaScript**.
 
