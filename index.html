@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Calculator</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app" aria-label="Calculator app">
+      <section class="calc" aria-label="Calculator">
+        <header class="calc__header">
+          <h1 class="calc__title">Calculator</h1>
+          <div class="toolbar" aria-label="Toolbar">
+            <button class="chip" id="themeToggle" type="button" aria-label="Toggle theme">Dark</button>
+            <button class="chip" id="copyBtn" type="button" aria-label="Copy result">Copy</button>
+          </div>
+        </header>
+
+        <div class="display" role="group" aria-label="Display">
+          <div class="display__expr" id="expr" aria-label="Expression"></div>
+          <output class="display__value" id="display" aria-label="Result" aria-live="polite">0</output>
+        </div>
+
+        <div class="layout">
+          <div class="keys keys--simple" role="group" aria-label="Keys">
+            <button class="key key--soft" data-action="mc" aria-label="Memory clear">MC</button>
+            <button class="key key--soft" data-action="mr" aria-label="Memory recall">MR</button>
+            <button class="key key--soft" data-action="mplus" aria-label="Memory add">M+</button>
+            <button class="key key--soft" data-action="mminus" aria-label="Memory subtract">M−</button>
+
+            <button class="key key--soft key--danger" data-action="clear" aria-label="Clear">AC</button>
+            <button class="key key--soft" data-action="backspace" aria-label="Backspace">⌫</button>
+            <button class="key key--soft" data-action="sign" aria-label="Toggle sign">+/−</button>
+            <button class="key key--op" data-op="/" aria-label="Divide">÷</button>
+
+            <button class="key" data-action="lparen" aria-label="Left parenthesis">(</button>
+            <button class="key" data-action="rparen" aria-label="Right parenthesis">)</button>
+            <button class="key" data-action="percent" aria-label="Percent">%</button>
+            <button class="key key--op" data-op="*" aria-label="Multiply">×</button>
+
+            <button class="key" data-digit="7">7</button>
+            <button class="key" data-digit="8">8</button>
+            <button class="key" data-digit="9">9</button>
+            <button class="key key--op" data-op="-" aria-label="Minus">−</button>
+
+            <button class="key" data-digit="4">4</button>
+            <button class="key" data-digit="5">5</button>
+            <button class="key" data-digit="6">6</button>
+            <button class="key key--op" data-op="+" aria-label="Plus">+</button>
+
+            <button class="key key--wide" data-digit="1">1</button>
+            <button class="key" data-digit="2">2</button>
+            <button class="key" data-digit="3">3</button>
+            <button class="key key--equals" data-action="equals" aria-label="Equals">=</button>
+
+            <button class="key key--wide" data-digit="0">0</button>
+            <button class="key" data-action="dot" aria-label="Decimal point">.</button>
+          </div>
+
+          <aside class="history" aria-label="History">
+            <div class="history__header">
+              <div class="history__title">History</div>
+              <button class="chip chip--small" id="clearHistory" type="button">Clear</button>
+            </div>
+            <div class="history__list" id="historyList" role="list" aria-label="History list"></div>
+          </aside>
+        </div>
+
+        <p class="hint">
+          Keyboard: digits, <kbd>+</kbd> <kbd>-</kbd> <kbd>*</kbd> <kbd>/</kbd>, <kbd>(</kbd>
+          <kbd>)</kbd>, <kbd>Enter</kbd> for equals, <kbd>Backspace</kbd>, <kbd>Esc</kbd> to clear.
+        </p>
+      </section>
+    </main>
+
+    <script src="./script.js" defer></script>
+  </body>
+</html>
